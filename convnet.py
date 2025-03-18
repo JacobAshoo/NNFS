@@ -391,6 +391,8 @@ class Model:
             if isinstance(layer, (Linear, Conv2D)):
                 weights.append(layer.w)
 
+        return weights
+
 
 class ModelDropout:
     def __init__(self, device=None):
@@ -438,6 +440,8 @@ class ModelDropout:
         for layer in self.layers:
             if isinstance(layer, (Linear, Conv2D)):
                 weights.append(layer.w)
+
+        return weights
 
 
 def save_model(model, name):
