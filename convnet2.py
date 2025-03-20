@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-import torchvision.datasets
+import torchvision
+from torchvision import transforms
 import dill
 import pickle
 from sklearn.preprocessing import OneHotEncoder
@@ -133,9 +134,7 @@ class Conv2D:
         self.stride = stride
         self.padding = padding
         self.device = device
-        init_scale = (
-            (2.0 / in_channels) ** 0.5 if isinstance(activation, Relu) else 0.01
-        )
+        init_scale = (2.0 / in_channels) ** 0.5
         self.w = (
             torch.randn(
                 out_channels, in_channels, kernel_size, kernel_size, device=device
@@ -210,8 +209,12 @@ class MaxPool2D:
 
 class BatchNorm2D:
     def __init__(self, num_features, device, eps=1e-5, momentum=0.1):
-        self.gamma = torch.ones(1, num_features, 1, 1, device=device, requires_grad=False)
-        self.beta = torch.zeros(1, num_features, 1, 1, device=device, requires_grad=False)
+        self.gamma = torch.ones(
+            1, num_features, 1, 1, device=device, requires_grad=False
+        )
+        self.beta = torch.zeros(
+            1, num_features, 1, 1, device=device, requires_grad=False
+        )
         self.eps = eps
         self.momentum = momentum
         self.running_mean = torch.zeros(1, num_features, 1, 1, device=device)
@@ -222,27 +225,41 @@ class BatchNorm2D:
         if self.training:
             batch_mean = x.mean(dim=(0, 2, 3), keepdim=True)
             batch_var = x.var(dim=(0, 2, 3), keepdim=True, unbiased=False)
-            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * batch_mean
-            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * batch_var
-            self.x_hat= F.batch_norm(
-                x, batch_mean, batch_var, 
-                self.gamma.squeeze(), self.beta.squeeze(), 
-                training=True, eps=self.eps
+            self.running_mean = (
+                1 - self.momentum
+            ) * self.running_mean + self.momentum * batch_mean
+            self.running_var = (
+                1 - self.momentum
+            ) * self.running_var + self.momentum * batch_var
+            self.x_hat = F.batch_norm(
+                x,
+                batch_mean,
+                batch_var,
+                self.gamma.squeeze(),
+                self.beta.squeeze(),
+                training=True,
+                eps=self.eps,
             )
             return self.x_hat
         else:
             self.x_hat = F.batch_norm(
-                x, self.running_mean, self.running_var,
-                self.gamma.squeeze(), self.beta.squeeze(),
-                training=False, eps=self.eps
+                x,
+                self.running_mean,
+                self.running_var,
+                self.gamma.squeeze(),
+                self.beta.squeeze(),
+                training=False,
+                eps=self.eps,
             )
             return self.x_hat
 
     def backward(self, grad_output):
-        return grad_output 
+        return grad_output
 
     def get_params(self):
         return [self.gamma, self.beta]
+
+
 class Flatten:
     def __init__(self, device=None):
         self.device = device
@@ -348,51 +365,6 @@ class Model:
         return [layer.w for layer in self.layers if isinstance(layer, (Linear, Conv2D))]
 
 
-class ModelDropout:
-    def __init__(self, device=None):
-        self.conv1 = Conv2D(3, 64, 3, lambda x: x, padding=1, device=device)
-        self.bn1 = BatchNorm2D(64, device=device)
-        self.relu1 = Relu()
-        self.pool1 = MaxPool2D(2, 2)
-
-        self.conv2 = Conv2D(64, 128, 3, lambda x: x, padding=1, device=device)
-        self.bn2 = BatchNorm2D(128, device=device)
-        self.relu2 = Relu()
-        self.pool2 = MaxPool2D(2, 2)
-
-        self.flatten = Flatten()
-        self.linear1 = Linear(128 * 8 * 8, 256, Relu(), device=device, dropout=0.8)
-        self.linear2 = Linear(256, 10, lambda x: x, device=device)
-        self.layers = [
-            self.conv1,
-            self.bn1,
-            self.relu1,
-            self.pool1,
-            self.conv2,
-            self.bn2,
-            self.relu2,
-            self.pool2,
-            self.flatten,
-            self.linear1,
-            self.linear2,
-        ]
-
-    def forward(self, x, train=True):
-        self.bn1.training = train
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.pool1(x)
-        self.bn2.training = train
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.pool2(x)
-        x = self.flatten(x)
-        return self.linear2(self.linear1(x, train), train)
-
-    def __call__(self, x, train=True):
-        return self.forward(x, train)
-
-    def get_weights(self):
-        return [layer.w for layer in self.layers if isinstance(layer, (Linear, Conv2D))]
-
 
 def save_model(model, name):
     with open(f"{name}.dill", "wb") as f:
@@ -437,7 +409,10 @@ def load_data(x, y, device=None):
     batch_size = 32
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    return train_loader, test_loader
+    return test_loader, train_loader
+
+
+
 
 
 def train(
@@ -487,6 +462,9 @@ def train(
             lr = warmup(epoch, lr)
 
         for iteration, (x, y) in enumerate(train_loader):
+            x = x.to(device)
+            y = y.to(device)
+
             ypred = model(x)
             weights = model.get_weights() if loss_function.l2_reg else None
             loss = loss_function(ypred, y, weights)
@@ -509,7 +487,9 @@ def train(
                     optimizer.optimize(dw, db, layer)
                 elif isinstance(layer, BatchNorm2D):
                     dx = layer.backward(dx)
-                    gamma_grad = torch.mean(dx * layer.x_hat, dim=(0, 2, 3), keepdim=True)
+                    gamma_grad = torch.mean(
+                        dx * layer.x_hat, dim=(0, 2, 3), keepdim=True
+                    )
                     beta_grad = torch.mean(dx, dim=(0, 2, 3), keepdim=True)
                     layer.gamma -= optimizer.lr * gamma_grad
                     layer.beta -= optimizer.lr * beta_grad
@@ -528,6 +508,8 @@ def train(
     n_total = 0
     n_correct = 0
     for iteration, (x, y) in enumerate(test_loader):
+        x = x.to(device)
+        y = y.to(device)
         ypred = model(x, train=False)
         loss = test_loss_function(ypred, y)
         losses.append(loss)
@@ -553,119 +535,32 @@ if __name__ == "__main__":
     device = torch.device("cuda:0")
     x, y = import_data()
     train_loader, test_loader = load_data(x, y, device=device)
-    epochs = 80
-    lr = 1e-5
 
-    model = Model(device=device)
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=False, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "No_Regularization",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
+    with open ("Dropout_.8_L2_.01.dill", "rb") as f:
+        model = dill.load(f)
 
-    model = ModelDropout(device=device)
-    model.linear1.dropout = 0.5
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=False, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "Dropout_.5",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
+    test_loss_function = CrossEntropy(device=device, l2_reg=False)
+    losses = []
+    n_total = 0
+    n_correct = 0
+    softmax = Softmax()
+    for iteration, (x, y) in enumerate(test_loader):
+        x = x.to(device)
+        y = y.to(device)
+        ypred = model(x, train=False)
+        loss = test_loss_function(ypred, y)
+        losses.append(loss)
 
-    model = ModelDropout(device=device)
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=False, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "Dropout_.8",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
+        n_total += y.size(dim=0)
+        ypred = softmax(ypred)
+        guesses = torch.argmax(ypred, dim=1)
+        truths = torch.argmax(y, dim=1)
+        n_correct += (guesses == truths).sum().item()
 
-    model = Model(device=device)
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=True, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "L2_.01",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
+    loss = sum(losses) / len(losses)
+    accuracy = n_correct / n_total
+    print(f"Loss: {loss} Accuracy: {accuracy}")
 
-    model = Model(device=device)
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=True, l=0.1),
-        Adam(lr, 0.9, 0.999),
-        "L2_.1",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
 
-    model = ModelDropout(device=device)
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=True, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "Dropout_.8_L2_.01",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
 
-    model = ModelDropout(device=device)
-    model.linear1.dropout = 0.5
-    train(
-        model,
-        epochs,
-        lr,
-        CrossEntropy(device=device, l2_reg=True, l=0.01),
-        Adam(lr, 0.9, 0.999),
-        "Dropout_.5_L2_.01",
-        train_loader,
-        test_loader,
-        "cosine",
-        True,
-        True,
-        device,
-    )
+    
