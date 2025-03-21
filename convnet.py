@@ -536,7 +536,7 @@ if __name__ == "__main__":
     x, y = import_data()
     train_loader, test_loader = load_data(x, y, device=device)
 
-    with open ("Dropout_.8_L2_.01.dill", "rb") as f:
+    with open ("model.dill", "rb") as f:
         model = dill.load(f)
 
     test_loss_function = CrossEntropy(device=device, l2_reg=False)
