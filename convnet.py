@@ -331,9 +331,17 @@ class Model:
         self.relu2 = Relu()
         self.pool2 = MaxPool2D(2, 2)
 
+        self.conv3 = Conv2D(128, 256, 3, lambda x: x, padding=1, device=device)
+        self.bn3 = BatchNorm2D(256, device=device)
+        self.relu3 = Relu()
+        self.pool3 = MaxPool2D(2, 2)
+
+
         self.flatten = Flatten()
-        self.linear1 = Linear(128 * 8 * 8, 256, Relu(), device=device)
-        self.linear2 = Linear(256, 10, lambda x: x, device=device)
+        self.linear1 = Linear(128 * 8 * 8, 512, Relu(), device=device)
+        self.linear2 = Linear(512, 256, Relu(), device=device)
+        self.linear3 = Linear(512, 128, Relu(), device=device)
+        self.linear4 = Linear(128, 10, lambda x: x, device=device)
         self.layers = [
             self.conv1,
             self.bn1,
@@ -343,6 +351,10 @@ class Model:
             self.bn2,
             self.relu2,
             self.pool2,
+            self.conv3,
+            self.bn3,
+            self.relu3,
+            self.pool3,
             self.flatten,
             self.linear1,
             self.linear2,
@@ -355,8 +367,13 @@ class Model:
         self.bn2.training = train
         x = self.relu2(self.bn2(self.conv2(x)))
         x = self.pool2(x)
+        self.bn3.training = train
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.pool3(x)
+
         x = self.flatten(x)
-        return self.linear2(self.linear1(x, train), train)
+        x = self.linear2(self.linear1(x, train), train)
+        return self.linear4(self.linear3(x, train), train)
 
     def __call__(self, x, train=True):
         return self.forward(x, train)
@@ -534,33 +551,8 @@ def train(
 if __name__ == "__main__":
     device = torch.device("cuda:0") if torch.cuda.is_available() else "cpu"
     x, y = import_data()
-    train_loader, test_loader = load_data(x, y, device=device)
+    test_loader, train_loader= load_data(x, y, device=device)
 
-    with open ("model.dill", "rb") as f:
-        model = dill.load(f)
-
-    test_loss_function = CrossEntropy(device=device, l2_reg=False)
-    losses = []
-    n_total = 0
-    n_correct = 0
-    softmax = Softmax()
-    for iteration, (x, y) in enumerate(test_loader):
-        x = x.to(device)
-        y = y.to(device)
-        ypred = model(x, train=False)
-        loss = test_loss_function(ypred, y)
-        losses.append(loss)
-
-        n_total += y.size(dim=0)
-        ypred = softmax(ypred)
-        guesses = torch.argmax(ypred, dim=1)
-        truths = torch.argmax(y, dim=1)
-        n_correct += (guesses == truths).sum().item()
-
-    loss = sum(losses) / len(losses)
-    accuracy = n_correct / n_total
-    print(f"Loss: {loss} Accuracy: {accuracy}")
-
-
+   
 
     
