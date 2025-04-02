@@ -637,8 +637,8 @@ if __name__ == "__main__":
     x, y = import_data()
     test_loader, train_loader= load_data(x, y, device=device)
     model = ModelAlexNet(device=device)
-    loss_function = CrossEntropy(l2_reg=True, l=.01)
+    loss_function = CrossEntropy()
     lr = 2e-6
     optimizer = Adam(lr, .9, .999)
-    train(model, 30, lr, loss_function, optimizer, "Alexnet_L2_2e-6 Dropout", train_loader, test_loader, decay_algo="cosine", use_wandb=True, save=True, device=device)
+    train(model, 30, lr, loss_function, optimizer, "Alexnet_Dropout", train_loader, test_loader, decay_algo="cosine", use_wandb=True, save=True, device=device)
    
