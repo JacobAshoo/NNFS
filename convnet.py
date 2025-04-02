@@ -259,7 +259,6 @@ class BatchNorm2D:
     def get_params(self):
         return [self.gamma, self.beta]
 
-
 class Flatten:
     def __init__(self, device=None):
         self.device = device
@@ -324,7 +323,7 @@ class Model:
         self.conv1 = Conv2D(3, 64, 3, lambda x: x, padding=1, device=device)
         self.bn1 = BatchNorm2D(64, device=device)
         self.relu1 = Relu()
-        self.pool1 = MaxPool2D(2, 2)
+        #self.pool1 = MaxPool2D(2, 2)
 
         self.conv2 = Conv2D(64, 128, 3, lambda x: x, padding=1, device=device)
         self.bn2 = BatchNorm2D(128, device=device)
@@ -338,32 +337,39 @@ class Model:
 
 
         self.flatten = Flatten()
-        self.linear1 = Linear(128 * 8 * 8, 512, Relu(), device=device)
-        self.linear2 = Linear(512, 256, Relu(), device=device)
-        self.linear3 = Linear(512, 128, Relu(), device=device)
-        self.linear4 = Linear(128, 10, lambda x: x, device=device)
+        self.linear2 = Linear(16384, 2048, Relu(), device=device)
+        self.linear3 = Linear(2048, 1024, Relu(), device=device)
+        self.linear4 = Linear(1024, 512, Relu(), device=device)
+        self.linear5 = Linear(512,128, Relu(), device=device)
+        self.linear6= Linear(128, 10, lambda x: x, device=device)
         self.layers = [
             self.conv1,
             self.bn1,
             self.relu1,
-            self.pool1,
+           # self.pool1,
+
             self.conv2,
             self.bn2,
             self.relu2,
             self.pool2,
+
             self.conv3,
             self.bn3,
             self.relu3,
             self.pool3,
+
             self.flatten,
-            self.linear1,
             self.linear2,
+            self.linear3,
+            self.linear4,
+            self.linear5,
+            self.linear6,
         ]
 
     def forward(self, x, train=True):
         self.bn1.training = train
         x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.pool1(x)
+       # x = self.pool1(x)
         self.bn2.training = train
         x = self.relu2(self.bn2(self.conv2(x)))
         x = self.pool2(x)
@@ -372,8 +378,85 @@ class Model:
         x = self.pool3(x)
 
         x = self.flatten(x)
-        x = self.linear2(self.linear1(x, train), train)
-        return self.linear4(self.linear3(x, train), train)
+        x = self.linear2(x, train)
+        x = self.linear4(self.linear3(x, train), train)
+        x = self.linear6(self.linear5(x, train), train)
+        return x
+
+    def __call__(self, x, train=True):
+        return self.forward(x, train)
+
+    def get_weights(self):
+        return [layer.w for layer in self.layers if isinstance(layer, (Linear, Conv2D))]
+
+class ModelAlexNet:
+    def __init__(self, device=None):
+        # Convolutional Layers
+        self.conv1 = Conv2D(3, 64, 3, stride=1, padding=1, activation=lambda x: x, device=device)
+        self.bn1 = BatchNorm2D(64, device=device)
+        self.relu1 = Relu()
+        self.pool1 = MaxPool2D(2, stride=2, device=device)
+        
+        self.conv2 = Conv2D(64, 192, 3, padding=1, activation=lambda x: x, device=device)
+        self.bn2 = BatchNorm2D(192, device=device)
+        self.relu2 = Relu()
+        self.pool2 = MaxPool2D(2, stride=2, device=device)
+        
+        self.conv3 = Conv2D(192, 384, 3, padding=1, activation=lambda x: x, device=device)
+        self.bn3 = BatchNorm2D(384, device=device)
+        self.relu3 = Relu()
+        
+        self.conv4 = Conv2D(384, 256, 3, padding=1, activation=lambda x: x, device=device)
+        self.bn4 = BatchNorm2D(256, device=device)
+        self.relu4 = Relu()
+        
+        self.conv5 = Conv2D(256, 256, 3, padding=1, activation=lambda x: x, device=device)
+        self.bn5 = BatchNorm2D(256, device=device)
+        self.relu5 = Relu()
+        self.pool3 = MaxPool2D(2, stride=2, device=device)
+        
+        # Fully Connected Layers
+        self.flatten = Flatten()
+        self.linear1 = Linear(256 * 4 * 4, 4096, activation=lambda x: x, device=device)
+        self.relu6 = Relu()
+        
+        self.linear2 = Linear(4096, 4096, activation=lambda x: x, device=device, dropout=.6)
+        self.relu7 = Relu()
+        
+        self.linear3 = Linear(4096, 10, activation=lambda x: x, device=device)
+        
+        self.layers = [
+            self.conv1, self.bn1, self.relu1, self.pool1,
+            self.conv2, self.bn2, self.relu2, self.pool2,
+            self.conv3, self.bn3, self.relu3,
+            self.conv4, self.bn4, self.relu4,
+            self.conv5, self.bn5, self.relu5, self.pool3,
+            self.flatten,
+            self.linear1, self.relu6,
+            self.linear2, self.relu7,
+            self.linear3
+        ]
+
+    def forward(self, x, train=True):
+        # Block 1
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.pool1(x)
+        
+        # Block 2
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.pool2(x)
+        
+        # Block 3-5
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.relu4(self.bn4(self.conv4(x)))
+        x = self.relu5(self.bn5(self.conv5(x)))
+        x = self.pool3(x)
+        
+        # FC Layers
+        x = self.flatten(x)
+        x = self.relu6(self.linear1(x))
+        x = self.relu7(self.linear2(x))
+        return self.linear3(x)
 
     def __call__(self, x, train=True):
         return self.forward(x, train)
@@ -423,7 +506,7 @@ def load_data(x, y, device=None):
     train_dataset = TensorDataset(X_train, y_train)
     test_dataset = TensorDataset(X_test, y_test)
 
-    batch_size = 32
+    batch_size = 128
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     return test_loader, train_loader
@@ -539,6 +622,7 @@ def train(
 
     loss = sum(losses) / len(losses)
     accuracy = n_correct / n_total
+    print(f"test_loss: {loss} test_accuracy: {accuracy}")
     if save:
         save_model(model, name)
     if use_wandb:
@@ -552,7 +636,9 @@ if __name__ == "__main__":
     device = torch.device("cuda:0") if torch.cuda.is_available() else "cpu"
     x, y = import_data()
     test_loader, train_loader= load_data(x, y, device=device)
-
+    model = ModelAlexNet(device=device)
+    loss_function = CrossEntropy(l2_reg=True, l=.01)
+    lr = 2e-6
+    optimizer = Adam(lr, .9, .999)
+    train(model, 30, lr, loss_function, optimizer, "Alexnet_L2_2e-6 Dropout", train_loader, test_loader, decay_algo="cosine", use_wandb=True, save=True, device=device)
    
-
-    
